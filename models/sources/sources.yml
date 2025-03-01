@@ -1,0 +1,6 @@
+version: 2
+sources:
+  - name: fitness
+    database: kiran_db
+    tables:
+      - name: fitness_data
