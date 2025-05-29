@@ -24,6 +24,8 @@ clean-targets:         # directories to be removed by `dbt clean`
     - "target"
     - "dbt_modules"
 
+on-run-start:
+  # - "{{ create_dbt_audit_log_table() }}"
 
 # Configuring models
 # Full documentation: https://docs.getdbt.com/docs/configuring-models
