@@ -1,0 +1,96 @@
+To test the new Advanced Audit Logging System:
+
+**1. Understanding the Setup:**
+
+This dbt project now uses a two-table audit logging system:
+*   **`dbt_audit_summary`**: Captures one record per model run, summarizing its overall execution.
+*   **`dbt_audit_detail`**: Captures records for granular events or steps within a model's execution, allowing for detailed tracing, including an optional sequence number for steps.
+
+The logging is primarily managed by these macros:
+*   `log_run_start()`: Called at the beginning of a model (typically in `pre-hook`) to record the start in `dbt_audit_summary`.
+*   `log_run_end()`: Called at the end of a model (typically in `post-hook`) to update the summary record.
+*   `log_step_event()`: Called inline within a model's SQL to log specific steps or events to `dbt_audit_detail`. It now supports a `step_sequence_num` parameter.
+*   Table creation macros (`create_dbt_audit_summary_table`, `create_dbt_audit_detail_table`) are called automatically and are optimized.
+
+**2. Review the Example Model (`models/examples/example_logged_model.sql`):**
+
+Open and review `models/examples/example_logged_model.sql`. Notice its structure:
+*   **`config` block:**
+    *   `pre_hook`: `{{ log_run_start(message='Starting example_logged_model execution.') }}`
+    *   `post_hook`: `{{ log_run_end(status=adapter.get_status(model.status)) }}`
+*   **`log_step_event` calls:**
+    *   `{{ log_step_event(step_name='generate_initial_data', step_sequence_num=1, message='Generating a simple dataset with one ID.') }}`
+    *   `{{ log_step_event(step_name='apply_transformation', step_sequence_num=2, message='Applying a minor transformation (selecting all).') }}`
+    *   `{{ log_step_event(step_name='final_notes', message='Model processing complete before final select. No sequence number provided.') }}` (demonstrates optional `step_sequence_num`)
+
+**3. Ensure dbt Profile is Configured:**
+
+Your dbt profile (e.g., `~/.dbt/profiles.yml`) must be correctly set up to connect to your data warehouse. Audit tables will be created in your target schema.
+
+**4. Run the Example Model (Successful Run):**
+
+Execute the following dbt command:
+```bash
+dbt run --select example_logged_model
+```
+
+**5. Query and Verify `dbt_audit_summary` (Successful Run):**
+
+Connect to your data warehouse and execute (replace `your_target_schema`):
+```sql
+SELECT
+    invocation_id,
+    model_name,
+    run_started_at,
+    run_ended_at,
+    execution_time_seconds,
+    status,
+    run_by_user,
+    custom_message,
+    rows_processed -- Expected to be NULL
+FROM your_target_schema.dbt_audit_summary
+WHERE model_name = 'example_logged_model'
+ORDER BY run_started_at DESC LIMIT 1;
+```
+*   **Verify Fields:**
+    *   `model_name`: 'example_logged_model'.
+    *   `status`: 'completed' (or adapter's success status).
+    *   `custom_message`: 'Starting example_logged_model execution.'.
+    *   Note the `invocation_id` for the next query. Other fields like timestamps and user should be populated.
+
+**6. Query and Verify `dbt_audit_detail` (Successful Run):**
+
+Using the `invocation_id` from the summary query, inspect the detail logs (replace placeholder and `your_target_schema`):
+```sql
+SELECT
+    detail_log_id,
+    invocation_id,
+    model_name,
+    step_name,
+    step_sequence_num,
+    event_timestamp,
+    status as step_status,
+    message
+FROM your_target_schema.dbt_audit_detail
+WHERE model_name = 'example_logged_model' AND invocation_id = '[THE_INVOCATION_ID_FROM_SUMMARY_QUERY]'
+ORDER BY step_sequence_num ASC, event_timestamp ASC;
+```
+*   **Verify Fields for Each Step:**
+    *   You should see records for `step_name` values: 'generate_initial_data', 'apply_transformation', and 'final_notes'.
+    *   `step_sequence_num`:
+        *   Should be `1` for 'generate_initial_data'.
+        *   Should be `2` for 'apply_transformation'.
+        *   Should be `NULL` for 'final_notes'.
+    *   `invocation_id` and `model_name` should match the summary record.
+    *   `event_timestamp` populated.
+    *   `step_status`: 'info' (default).
+    *   `message` should match those in `example_logged_model.sql`.
+
+**7. Test Failure Scenario (Optional but Recommended):**
+
+*   **Introduce an Error:** Modify `models/examples/example_logged_model.sql` (e.g., select from a non-existent table in the last CTE).
+*   **Re-run:** `dbt run --select example_logged_model --fail-fast`
+*   **Query `dbt_audit_summary`:** Verify `status` is 'error' (or equivalent).
+*   **Query `dbt_audit_detail`:** Observe which steps were logged before failure, using the new `invocation_id`.
+
+This detailed testing helps confirm all features of the audit logging system.
