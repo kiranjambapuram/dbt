@@ -74,7 +74,6 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
                 response_data = response.json().get("data", {})
                 status_code = response_data.get("status")
 
-                # dbt Cloud API Run Status Codes: 10=Success, 20=In Progress, 30=Error, 40=Cancelled
                 if status_code in [10, 30, 40]: # Job is complete (Success, Error, or Cancelled)
                     created_at_str = response_data.get("created_at")
                     finished_at_str = response_data.get("finished_at")
@@ -82,15 +81,19 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
                     queue_duration = None
                     duration = None
 
+                    # Fix: Convert API's timezone-aware timestamps to naive before subtraction
                     if created_at_str and record["TIMESTAMP"]:
-                        start_time_obj = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                        request_time_obj = record["TIMESTAMP"]
-                        queue_duration = int((start_time_obj - request_time_obj).total_seconds())
+                        aware_start_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        naive_start_time = aware_start_time.replace(tzinfo=None)
+                        request_time_obj = record["TIMESTAMP"] # This is already naive
+                        queue_duration = int((naive_start_time - request_time_obj).total_seconds())
 
                     if created_at_str and finished_at_str:
-                        start_time_obj = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                        end_time_obj = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
-                        duration = int((end_time_obj - start_time_obj).total_seconds())
+                        aware_start_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        naive_start_time = aware_start_time.replace(tzinfo=None)
+                        aware_end_time = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
+                        naive_end_time = aware_end_time.replace(tzinfo=None)
+                        duration = int((naive_end_time - naive_start_time).total_seconds())
 
                     update_payload = {
                         "started_on": created_at_str,
