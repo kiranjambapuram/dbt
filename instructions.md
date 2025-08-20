@@ -55,52 +55,30 @@ CREATE OR REPLACE TABLE parameters (
 This solution requires a pre-existing External Access Integration and a Secret to store your dbt Cloud API token. The provided scripts are pre-configured to use an integration named `POC_EAI_TEST` and a secret named `POC_SECRET_TEST`.
 
 ## 2. Component Setup
+... (sections 2.1 and 2.2 as before) ...
 
-### 2.1. Create the Trigger Stored Procedure
-The file `create_dbt_trigger_sp.sql` contains the script for the first SP. Before running, verify the integration/secret names and update the `YOUR_DBT_ACCOUNT_ID` placeholder. Then, execute the script in Snowflake to create the `trigger_dbt_job_sp` procedure.
+## 3. Running the Process
 
-### 2.2. Create the Status Checker Stored Procedure
-The file `create_status_checker_sp.sql` contains the script for the second SP. Verify the integration/secret names and update the `YOUR_DBT_ACCOUNT_ID` placeholder. Then, execute the script in Snowflake to create the `check_dbt_job_status_sp` procedure.
+### 3.1. Insert Data into the `parameters` Table
+Insert a new row into the table to trigger the process. The `status` will default to 'N' automatically.
 
-## 3. Automation Setup
+**Important:** For accurate `queue_duration` calculation, the `timestamp` column should be populated with a UTC timestamp. Use `SYSTIMESTAMP()` or `CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())` instead of `CURRENT_TIMESTAMP()`.
 
-### 3.1. Create the Stream for the Trigger
-This stream will detect new rows in the `parameters` table.
 ```sql
-CREATE OR REPLACE STREAM parameters_stream ON TABLE parameters;
+-- Example: Insert a new record for processing using a UTC timestamp
+INSERT INTO parameters (period, org_code, segment, region, "user", "timestamp")
+VALUES ('202408', 'ORG123', 'ENTERPRISE', 'US_EAST', 'jules_dev', SYSTIMESTAMP());
 ```
 
-### 3.2. Create and Schedule the Tasks
-
-You need two separate tasks, one for each stored procedure.
-
-**Task 1: The Trigger Task (Event-Driven)**
-This task calls `trigger_dbt_job_sp` once when new records appear in the stream. A single run of the SP will process all available records.
+### 3.2. Manual Trigger (for testing)
+You can call the stored procedures manually. Note that this bypasses the automated Stream/Task setup.
 ```sql
--- Replace 12345 with the dbt Job ID you want this trigger to run
-CREATE OR REPLACE TASK dbt_trigger_task
-  WAREHOUSE = 'YOUR_WAREHOUSE' -- Replace with your warehouse
-  SCHEDULE = '1 MINUTE'
-  WHEN SYSTEM$STREAM_HAS_DATA('parameters_stream')
-AS
-  CALL trigger_dbt_job_sp(12345);
+-- Trigger a job (replace 12345 with your dbt Job ID)
+CALL trigger_dbt_job_sp(12345);
+
+-- Check for the status of completed jobs
+CALL check_dbt_job_status_sp();
 ```
 
-**Task 2: The Status Checker Task (Scheduled)**
-This task calls `check_dbt_job_status_sp` on a regular schedule to poll for results.
-```sql
-CREATE OR REPLACE TASK dbt_status_checker_task
-  WAREHOUSE = 'YOUR_WAREHOUSE' -- Replace with your warehouse
-  SCHEDULE = '2 MINUTE' -- Runs every 2 minutes
-AS
-  CALL check_dbt_job_status_sp();
-```
-
-### 3.3. Start the Tasks
-Activate both tasks to complete the setup.
-```sql
-ALTER TASK dbt_trigger_task RESUME;
-ALTER TASK dbt_status_checker_task RESUME;
-```
-
-Your automated pipeline is now active. Inserting rows into the `parameters` table will kick off the entire process.
+## 4. Automation Setup (Recommended)
+... (sections 4.1, 4.2, 4.3 as before) ...

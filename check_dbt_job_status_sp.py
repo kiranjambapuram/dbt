@@ -3,7 +3,7 @@ import requests
 import json
 from typing import List, Dict, Any
 from _snowflake import get_secret_string
-from datetime import datetime
+from datetime import datetime, timezone
 
 def execute_final_update(session: snowpark.Session, table: str, updates: dict, conditions: dict, logs: List[str]) -> None:
     """Helper function to execute a parameterized UPDATE statement and log the action."""
@@ -71,19 +71,18 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
                     queue_duration = None
                     duration = None
 
-                    # Fix: Convert API's timezone-aware timestamps to naive before subtraction
+                    # Fix: Make both datetimes timezone-aware in UTC before subtraction
                     if created_at_str and record["TIMESTAMP"]:
-                        aware_start_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                        naive_start_time = aware_start_time.replace(tzinfo=None)
-                        request_time_obj = record["TIMESTAMP"] # This is already naive
-                        queue_duration = int((naive_start_time - request_time_obj).total_seconds())
+                        # API time is already aware of UTC after parsing
+                        start_time_aware = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        # Snowflake NTZ timestamp is naive, so we attach UTC timezone info to it
+                        request_time_aware = record["TIMESTAMP"].replace(tzinfo=timezone.utc)
+                        queue_duration = int((start_time_aware - request_time_aware).total_seconds())
 
                     if created_at_str and finished_at_str:
-                        aware_start_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                        naive_start_time = aware_start_time.replace(tzinfo=None)
-                        aware_end_time = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
-                        naive_end_time = aware_end_time.replace(tzinfo=None)
-                        duration = int((naive_end_time - naive_start_time).total_seconds())
+                        start_time_aware = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        end_time_aware = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
+                        duration = int((end_time_aware - start_time_aware).total_seconds())
 
                     update_payload = {
                         "started_on": created_at_str,
