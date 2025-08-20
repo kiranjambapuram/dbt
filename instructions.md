@@ -6,7 +6,7 @@ This document provides instructions on how to set up a robust, two-part system i
 
 This solution consists of two stored procedures and two tasks:
 1.  **Trigger SP (`trigger_dbt_job_sp`):** This procedure is triggered when new rows appear in the `parameters` table. It reads **all** available new records (status 'N') and processes them one-by-one in a loop within a single run. For each record, it calls the dbt Cloud API, updates the status to 'S' (Submitted), and saves the `run_id`.
-2.  **Status Checker SP (`check_dbt_job_status_sp`):** This procedure runs on a schedule. It finds all 'S' records and polls the dbt Cloud API to check the final status of the run. It then updates the row's status to 'C' (Complete) or 'E' (Error) and records the job's start time, end time, duration, and queue time.
+2.  **Status Checker SP (`check_dbt_job_status_sp`):** This procedure runs on a schedule. It finds all 'S' records and polls the dbt Cloud API to check the final status of the run. It then updates the row's status to 'C' (Complete) or 'E' (Error) and records the job's start time, end time, duration, and queue duration.
 
 ### Process Flow Diagram
 ```mermaid
@@ -24,8 +24,8 @@ graph TD
         H{checker_task} -- runs every 2 minutes --> I[CALL check_dbt_job_status_sp];
         I --> J{Find records where status = 'S'};
         J --> K{Poll dbt API with dbt_run_id};
-        K -- Succeeded --> L[Update status to 'C', started_on, ended_on, duration, queue_time];
-        K -- Failed --> M[Update status to 'E', started_on, ended_on, duration, queue_time];
+        K -- Succeeded --> L[Update status to 'C', started_on, ended_on, duration, queue_duration];
+        K -- Failed --> M[Update status to 'E', started_on, ended_on, duration, queue_duration];
     end
 ```
 
@@ -47,7 +47,7 @@ CREATE OR REPLACE TABLE parameters (
     started_on TIMESTAMP_NTZ(9),
     ended_on TIMESTAMP_NTZ(9),
     duration INTEGER,
-    queue_time INTEGER
+    queue_duration INTEGER
 );
 ```
 

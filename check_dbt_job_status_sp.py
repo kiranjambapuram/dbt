@@ -66,18 +66,16 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
 
                 # dbt Cloud API Run Status Codes: 10=Success, 20=In Progress, 30=Error, 40=Cancelled
                 if status_code in [10, 30, 40]: # Job is complete (Success, Error, or Cancelled)
-                    created_at_str = response_data.get("created_at") # This is when the run was created in dbt's system
+                    created_at_str = response_data.get("created_at")
                     finished_at_str = response_data.get("finished_at")
 
-                    queue_time = None
+                    queue_duration = None
                     duration = None
 
-                    # Note: The original 'timestamp' from the parameters table is when the user inserted the request.
-                    # The 'created_at' from the API is when dbt started processing the request.
                     if created_at_str and record["TIMESTAMP"]:
                         start_time_obj = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                        # The record["TIMESTAMP"] is already a datetime object from Snowpark
-                        queue_time = int((start_time_obj - record["TIMESTAMP"]).total_seconds())
+                        request_time_obj = record["TIMESTAMP"]
+                        queue_duration = int((start_time_obj - request_time_obj).total_seconds())
 
                     if created_at_str and finished_at_str:
                         start_time_obj = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
@@ -88,7 +86,7 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
                         "started_on": created_at_str,
                         "ended_on": finished_at_str,
                         "duration": duration,
-                        "queue_time": queue_time
+                        "queue_duration": queue_duration
                     }
 
                     if status_code == 10: # Success
