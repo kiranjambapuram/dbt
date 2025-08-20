@@ -73,40 +73,45 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
 
                 response_data = response.json().get("data", {})
                 status_code = response_data.get("status")
-                created_at_str = response_data.get("created_at")
-                finished_at_str = response_data.get("finished_at")
 
                 # dbt Cloud API Run Status Codes: 10=Success, 20=In Progress, 30=Error, 40=Cancelled
                 if status_code in [10, 30, 40]: # Job is complete (Success, Error, or Cancelled)
+                    created_at_str = response_data.get("created_at")
+                    finished_at_str = response_data.get("finished_at")
+
+                    queue_time = None
                     duration = None
+
+                    # Note: The original 'timestamp' from the parameters table is when the user inserted the request.
+                    # The 'created_at' from the API is when dbt started processing the request.
+                    if created_at_str and record["TIMESTAMP"]:
+                        start_time_obj = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        # The record["TIMESTAMP"] is already a datetime object from Snowpark
+                        queue_time = int((start_time_obj - record["TIMESTAMP"]).total_seconds())
+
                     if created_at_str and finished_at_str:
-                        # The format from dbt API is ISO 8601 with a 'Z' at the end.
-                        # Python's fromisoformat handles this if we replace 'Z' with '+00:00'.
-                        start_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
-                        end_time = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
-                        duration = int((end_time - start_time).total_seconds())
+                        start_time_obj = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        end_time_obj = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
+                        duration = int((end_time_obj - start_time_obj).total_seconds())
+
+                    update_payload = {
+                        "started_on": created_at_str,
+                        "ended_on": finished_at_str,
+                        "duration": duration,
+                        "queue_time": queue_time
+                    }
 
                     if status_code == 10: # Success
                         logs.append(f"Run {run_id} Succeeded. Updating status to 'C'.")
-                        update_payload = {
-                            "status": 'C',
-                            "message": "dbt job completed successfully.",
-                            "started_on": created_at_str,
-                            "ended_on": finished_at_str,
-                            "duration": duration
-                        }
-                        execute_final_update(session, "parameters", update_payload, composite_key, logs)
+                        update_payload["status"] = 'C'
+                        update_payload["message"] = "dbt job completed successfully."
                     else: # Error or Cancelled
                         error_message = f"dbt job failed with status code: {status_code}"
                         logs.append(f"Run {run_id} Failed/Cancelled. Updating status to 'E'. Message: {error_message}")
-                        update_payload = {
-                            "status": 'E',
-                            "message": error_message,
-                            "started_on": created_at_str,
-                            "ended_on": finished_at_str,
-                            "duration": duration
-                        }
-                        execute_final_update(session, "parameters", update_payload, composite_key, logs)
+                        update_payload["status"] = 'E'
+                        update_payload["message"] = error_message
+
+                    execute_final_update(session, "parameters", update_payload, composite_key, logs)
                 else: # Still in progress
                     logs.append(f"Run {run_id} is still in progress (status code: {status_code}). No update will be made.")
 
