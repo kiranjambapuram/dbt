@@ -11,35 +11,20 @@ $$
 import snowflake.snowpark as snowpark
 import requests
 import json
-import re
 from typing import List, Dict, Any, Optional
 from _snowflake import get_secret_string
 
-def parse_iso8601_duration(duration_str: Optional[str]) -> Optional[int]:
-    """
-    Parses an ISO 8601 duration string (e.g., 'PT1M30.5S') into total seconds.
-    Returns None if the input is None or invalid.
-    """
-    if not duration_str:
-        return None
-
-    # This regex handles the P...T...S format from dbt Cloud
-    match = re.search(r"T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?", duration_str)
-    if not match:
-        return None
-
-    hours = float(match.group(1)) if match.group(1) else 0
-    minutes = float(match.group(2)) if match.group(2) else 0
-    seconds = float(match.group(3)) if match.group(3) else 0
-
-    return int(hours * 3600 + minutes * 60 + seconds)
-
 def execute_final_update(session: snowpark.Session, table: str, updates: dict, conditions: dict, logs: List[str]) -> None:
     """Helper function to execute a parameterized UPDATE statement and log the action."""
-    set_clause = ", ".join([f'"{k.upper()}" = ?' for k in updates.keys()])
+    final_updates = {k: v for k, v in updates.items() if v is not None}
+    if not final_updates:
+        logs.append("No non-null values to update. Skipping database call.")
+        return
+
+    set_clause = ", ".join([f'"{k.upper()}" = ?' for k in final_updates.keys()])
     where_clause = " AND ".join([f'"{k.upper()}" = ?' for k in conditions.keys()])
     sql = f"UPDATE {table} SET {set_clause} WHERE {where_clause}"
-    params = list(updates.values()) + list(conditions.values())
+    params = list(final_updates.values()) + list(conditions.values())
 
     logs.append(f"Executing final status UPDATE: {sql} with params {params}")
     session.sql(sql, params=params).collect()
@@ -89,8 +74,8 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
                     update_payload = {
                         "started_on": response_data.get("created_at"),
                         "ended_on": response_data.get("finished_at"),
-                        "duration": parse_iso8601_duration(response_data.get("run_duration")),
-                        "queue_duration": parse_iso8601_duration(response_data.get("queued_duration"))
+                        "duration": response_data.get("run_duration"),
+                        "queue_duration": response_data.get("queued_duration")
                     }
 
                     if response_data.get("is_success"):

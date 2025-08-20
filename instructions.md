@@ -46,8 +46,8 @@ CREATE OR REPLACE TABLE parameters (
     dbt_run_id INTEGER,
     started_on TIMESTAMP_NTZ(9),
     ended_on TIMESTAMP_NTZ(9),
-    duration INTEGER,
-    queue_duration INTEGER
+    duration VARCHAR,
+    queue_duration VARCHAR
 );
 ```
 
@@ -58,27 +58,7 @@ This solution requires a pre-existing External Access Integration and a Secret t
 ... (sections 2.1 and 2.2 as before) ...
 
 ## 3. Running the Process
-
-### 3.1. Insert Data into the `parameters` Table
-Insert a new row into the table to trigger the process. The `status` will default to 'N' automatically.
-
-**Important:** For accurate `queue_duration` calculation, the `timestamp` column should be populated with a UTC timestamp. Use `SYSTIMESTAMP()` or `CONVERT_TIMEZONE('UTC', CURRENT_TIMESTAMP())` instead of `CURRENT_TIMESTAMP()`.
-
-```sql
--- Example: Insert a new record for processing using a UTC timestamp
-INSERT INTO parameters (period, org_code, segment, region, "user", "timestamp")
-VALUES ('202408', 'ORG123', 'ENTERPRISE', 'US_EAST', 'jules_dev', SYSTIMESTAMP());
-```
-
-### 3.2. Manual Trigger (for testing)
-You can call the stored procedures manually. Note that this bypasses the automated Stream/Task setup.
-```sql
--- Trigger a job (replace 12345 with your dbt Job ID)
-CALL trigger_dbt_job_sp(12345);
-
--- Check for the status of completed jobs
-CALL check_dbt_job_status_sp();
-```
+... (section 3 as before) ...
 
 ## 4. Automation Setup (Recommended)
 ... (sections 4.1, 4.2, 4.3 as before) ...
