@@ -13,6 +13,7 @@ import requests
 import json
 from typing import List, Dict, Any
 from _snowflake import get_secret_string
+from datetime import datetime
 
 def execute_final_update(session: snowpark.Session, table: str, updates: dict, conditions: dict, logs: List[str]) -> None:
     """Helper function to execute a parameterized UPDATE statement and log the action."""
@@ -72,17 +73,41 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
 
                 response_data = response.json().get("data", {})
                 status_code = response_data.get("status")
+                created_at_str = response_data.get("created_at")
+                finished_at_str = response_data.get("finished_at")
 
                 # dbt Cloud API Run Status Codes: 10=Success, 20=In Progress, 30=Error, 40=Cancelled
-                if status_code == 10: # Success
-                    logs.append(f"Run {run_id} Succeeded. Updating status to 'C'.")
-                    execute_final_update(session, "parameters", {"status": 'C', "message": "dbt job completed successfully."}, composite_key, logs)
-                elif status_code in [30, 40]: # Error or Cancelled
-                    final_status = 'E' if status_code == 30 else 'Cancelled'
-                    error_message = f"dbt job failed with status code: {status_code}"
-                    logs.append(f"Run {run_id} Failed/Cancelled. Updating status to 'E'. Message: {error_message}")
-                    execute_final_update(session, "parameters", {"status": 'E', "message": error_message}, composite_key, logs)
-                else: # Still in progress or other state
+                if status_code in [10, 30, 40]: # Job is complete (Success, Error, or Cancelled)
+                    duration = None
+                    if created_at_str and finished_at_str:
+                        # The format from dbt API is ISO 8601 with a 'Z' at the end.
+                        # Python's fromisoformat handles this if we replace 'Z' with '+00:00'.
+                        start_time = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+                        end_time = datetime.fromisoformat(finished_at_str.replace('Z', '+00:00'))
+                        duration = int((end_time - start_time).total_seconds())
+
+                    if status_code == 10: # Success
+                        logs.append(f"Run {run_id} Succeeded. Updating status to 'C'.")
+                        update_payload = {
+                            "status": 'C',
+                            "message": "dbt job completed successfully.",
+                            "started_on": created_at_str,
+                            "ended_on": finished_at_str,
+                            "duration": duration
+                        }
+                        execute_final_update(session, "parameters", update_payload, composite_key, logs)
+                    else: # Error or Cancelled
+                        error_message = f"dbt job failed with status code: {status_code}"
+                        logs.append(f"Run {run_id} Failed/Cancelled. Updating status to 'E'. Message: {error_message}")
+                        update_payload = {
+                            "status": 'E',
+                            "message": error_message,
+                            "started_on": created_at_str,
+                            "ended_on": finished_at_str,
+                            "duration": duration
+                        }
+                        execute_final_update(session, "parameters", update_payload, composite_key, logs)
+                else: # Still in progress
                     logs.append(f"Run {run_id} is still in progress (status code: {status_code}). No update will be made.")
 
             except Exception as e:
