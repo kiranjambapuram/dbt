@@ -65,7 +65,7 @@ def check_dbt_job_status(session: snowpark.Session) -> str:
                         "started_on": response_data.get("created_at"),
                         "ended_on": response_data.get("finished_at"),
                         "duration": response_data.get("run_duration"),
-                        "queue_duration": response_data.get("queued_duration")
+                        "queued_duration": response_data.get("queued_duration")
                     }
 
                     if response_data.get("is_success"):
