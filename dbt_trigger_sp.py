@@ -48,8 +48,8 @@ def trigger_dbt_job(session: snowpark.Session) -> str:
         headers = { "Authorization": f"Token {dbt_api_token}", "Content-Type": "application/json" }
 
         for i, record_row in enumerate(records):
-            record = record_row.as_dict()
             record_logs = []
+            record = record_row.as_dict()
             composite_key = {"period": record["PERIOD"], "org_code": record["ORG_CODE"], "segment": record["SEGMENT"], "region": record["REGION"], "user": record["USER"], "timestamp": record["TIMESTAMP"]}
             sp_logs.append(f"\nProcessing record {i+1}/{len(records)}: {composite_key}")
 
@@ -112,4 +112,3 @@ def trigger_dbt_job(session: snowpark.Session) -> str:
 
     sp_logs.append("\nSP execution finished.")
     return "\n".join(sp_logs)
-$$;
