@@ -28,20 +28,20 @@ def trigger_dbt_job(session: snowpark.Session) -> str:
     """
     The main handler function that triggers dbt Cloud jobs dynamically and logs to the table.
     """
-    sp_logs = ["SP execution started: Dynamic Batch mode."]
+    sp_initial_logs = ["SP execution started: Dynamic Batch mode."]
 
     try:
         environment = get_environment(session)
-        sp_logs.append(f"Determined environment: '{environment}'.")
+        sp_initial_logs.append(f"Determined environment: '{environment}'.")
 
         records_to_process_df = session.table("parameters").filter(snowpark.functions.col("status") == 'N').order_by("timestamp")
         records = records_to_process_df.collect()
 
         if not records:
-            sp_logs.append("No new records to process. Exiting.")
-            return "\n".join(sp_logs)
+            sp_initial_logs.append("No new records to process. Exiting.")
+            return "\n".join(sp_initial_logs)
 
-        sp_logs.append(f"Found {len(records)} records to process.")
+        sp_initial_logs.append(f"Found {len(records)} records to process.")
 
         dbt_api_token = get_secret_string('dbt_api_token')
         dbt_account_id = "YOUR_DBT_ACCOUNT_ID"
@@ -49,13 +49,18 @@ def trigger_dbt_job(session: snowpark.Session) -> str:
 
         for i, record_row in enumerate(records):
             record_logs = []
+            if i == 0:
+                record_logs.extend(sp_initial_logs)
+                record_logs.append("-" * 20) # Separator
+                sp_initial_logs.clear() # Clear after use
+
             record = record_row.as_dict()
             composite_key = {"period": record["PERIOD"], "org_code": record["ORG_CODE"], "segment": record["SEGMENT"], "region": record["REGION"], "user": record["USER"], "timestamp": record["TIMESTAMP"]}
-            sp_logs.append(f"\nProcessing record {i+1}/{len(records)}: {composite_key}")
 
             try:
                 segment = record["SEGMENT"]
                 region = record["REGION"]
+                record_logs.append(f"Processing record {i+1}/{len(records)}: {composite_key}")
                 record_logs.append(f"Looking up job config for env='{environment}', segment='{segment}', region='{region}'...")
                 config_df = session.table("dbt_job_config").filter(
                     (snowpark.functions.col("ENVIRONMENT") == environment) &
@@ -104,11 +109,11 @@ def trigger_dbt_job(session: snowpark.Session) -> str:
                     update_payload = {"status": 'E', "message": error_message, "sp_logs_trigger": "\n".join(record_logs)}
                     execute_update(session, "parameters", update_payload, composite_key)
                 except Exception as update_e:
-                    sp_logs.append(f"CRITICAL: Failed to update error status for record {composite_key}. Error: {str(update_e)}")
+                    # If this fails, we can't log to the table, so just return the main log
+                    return f"CRITICAL: Failed to update error status for record {composite_key}. Error: {str(update_e)}"
                 continue
 
     except Exception as e:
-        sp_logs.append(f"A critical error occurred during the main SP execution: {str(e)}")
+        return f"A critical error occurred during the main SP execution: {str(e)}"
 
-    sp_logs.append("\nSP execution finished.")
-    return "\n".join(sp_logs)
+    return f"SP execution finished successfully. Processed {len(records)} records."
